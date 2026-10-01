@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ComfyUI cluster</title>
+<style>
+  :root {
+    --bg: #e8ebee; --panel: #f6f7f8; --ink: #17212b; --muted: #5d6b79; --line: #cbd2d9;
+    --idle: #1f8a4c; --busy: #b96a00; --off: #b3261e; --unk: #7a8794; --accent: #1d4f91;
+    --run: #1d4f91; --pend: #9db8dc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #12181e; --panel: #1a222a; --ink: #e6ebf0; --muted: #94a3b1; --line: #2c3742;
+            --idle: #4cc38a; --busy: #f0a93b; --off: #ff7b72; --unk: #8493a1; --accent: #6ea8f0;
+            --run: #6ea8f0; --pend: #35506e; }
+  }
+  * { box-sizing: border-box; }
+  html { padding-top: env(safe-area-inset-top, 0px); }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 Bahnschrift, "Segoe UI", system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+  main { max-width: 980px; margin: 0 auto; padding: 28px 20px 60px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; margin-bottom: 22px; }
+  h1 { font-size: 26px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); }
+  .summary { margin-left: auto; font-size: 17px; }
+  .summary b { font-weight: 600; }
+
+  .checkbar { display: flex; align-items: center; gap: 14px; margin: -8px 0 18px; }
+  .tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-bottom: 22px; }
+  .tool { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+  .tool h2 { font-size: 15px; margin: 0 0 10px; font-weight: 600; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  input { flex: 1 1 120px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px;
+          background: var(--bg); color: var(--ink); font: inherit; }
+  button { padding: 8px 14px; border: 1px solid var(--accent); border-radius: 4px; background: var(--accent);
+           color: #fff; font: inherit; cursor: pointer; }
+  button.quiet { background: transparent; color: var(--ink); border-color: var(--line); padding: 4px 10px; font-size: 13px; }
+  button:disabled { opacity: .55; cursor: default; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; min-height: 1.4em; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 10px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+
+  .node { display: grid; grid-template-columns: 12px minmax(150px, 1.3fr) minmax(150px, 1.4fr) 92px auto;
+          gap: 4px 16px; align-items: center; background: var(--panel); border: 1px solid var(--line);
+          border-left-width: 4px; border-radius: 6px; padding: 12px 14px; margin-bottom: 8px; }
+  .node.idle { border-left-color: var(--idle); } .node.busy { border-left-color: var(--busy); }
+  .node.offline { border-left-color: var(--off); } .node.unknown { border-left-color: var(--unk); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--unk); }
+  .idle .dot { background: var(--idle); } .busy .dot { background: var(--busy); } .offline .dot { background: var(--off); }
+  .name { font-weight: 600; overflow-wrap: anywhere; }
+  .addr, .meta { color: var(--muted); font-size: 13px; }
+  .next { font-size: 12px; color: var(--accent); border: 1px solid var(--accent); border-radius: 10px; padding: 0 7px; margin-left: 6px; font-weight: 400; }
+  .load .bar { margin: 5px 0 0; display: flex; }
+  .load .bar i { transition: width .3s; }
+  .load .bar .r { background: var(--run); } .load .bar .p { background: var(--pend); }
+  .status { font-weight: 600; } .idle .status { color: var(--idle); } .busy .status { color: var(--busy); }
+  .offline .status { color: var(--off); }
+  .acts { display: flex; gap: 6px; justify-content: flex-end; }
+  .acts a { text-decoration: none; }
+  .empty { padding: 28px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 6px; }
+  .models { margin-top: 26px; }
+  .models h2 { font-size: 17px; margin: 0 0 4px; font-weight: 600; }
+  .mtools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 10px 0; }
+  .mtools input[type=search] { flex: 0 1 320px; }
+  .mtools label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
+  .mtools input[type=checkbox] { flex: none; width: auto; }
+  .mwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); max-height: 480px; overflow-y: auto; }
+  table.mt { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  .mt th, .mt td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: center; white-space: nowrap; }
+  .mt th { position: sticky; top: 0; background: var(--panel); font-weight: 600; z-index: 1; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+  .mt th:first-child, .mt td:first-child { text-align: left; position: sticky; left: 0; background: var(--panel); max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
+  .mt .folder { color: var(--muted); }
+  .mt .has { color: var(--idle); font-weight: 600; } .mt .no { color: var(--off); } .mt .unk { color: var(--muted); }
+  .mt tr.diff td:first-child { box-shadow: inset 3px 0 0 var(--busy); }
+  .reqs { margin-top: 26px; }
+  .reqs h2 { font-size: 17px; margin: 0 0 4px; font-weight: 600; }
+  .rwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); margin-top: 10px; }
+  table.rt { border-collapse: collapse; width: 100%; font-size: 14px; }
+  .rt th { text-align: left; font-weight: 600; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .rt td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .rt tr:last-child td { border-bottom: 0; }
+  .rt .t { white-space: nowrap; }
+  .rt .sub2 { display: block; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+  .st { font-weight: 600; white-space: nowrap; }
+  .st::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; background: var(--unk); }
+  .st.completed { color: var(--idle); } .st.completed::before { background: var(--idle); }
+  .st.running { color: var(--accent); } .st.running::before { background: var(--accent); }
+  .st.queued { color: var(--busy); } .st.queued::before { background: var(--busy); }
+  .st.failed, .st.rejected, .st.lost { color: var(--off); }
+  .st.failed::before, .st.rejected::before, .st.lost::before { background: var(--off); }
+  .rempty { padding: 22px; text-align: center; color: var(--muted); }
+  .saved { color: var(--muted); font-size: 13px; margin: 10px 2px 0; overflow-wrap: anywhere; }
+  #mstatus { color: var(--muted); font-size: 14px; }
+  #toast { position: fixed; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%);
+           background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 4px; display: none; max-width: 90%; }
+  @media (max-width: 720px) {
+    .node { grid-template-columns: 12px 1fr auto; }
+    .load, .status-col { grid-column: 2 / 4; } .acts { grid-column: 1 / 4; justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>ComfyUI cluster</h1>
+    <span class="sub" id="self"></span>
+    <span class="summary" id="summary"></span>
+  </header>
+  <div class="checkbar">
+    <button id="poll">Check nodes now</button>
+    <span class="sub" id="checked"></span>
+  </div>
+
+  <section class="tools">
+    <div class="tool">
+      <h2>Add a node</h2>
+      <div class="row">
+        <input id="addr" placeholder="192.168.1.20 or host:8188" aria-label="Node address">
+        <input id="label" placeholder="Name (optional)" aria-label="Node name">
+        <button id="add">Add node</button>
+      </div>
+    </div>
+    <div class="tool">
+      <h2>Find nodes on the network</h2>
+      <div class="row">
+        <input id="cidr" placeholder="Subnet, e.g. 192.168.1.0/24 (blank = this network)" aria-label="Subnet">
+        <button id="scan">Scan network</button>
+      </div>
+      <div class="bar" id="scanbar" hidden><i id="scanfill"></i></div>
+      <p class="hint" id="scanmsg"></p>
+    </div>
+  </section>
+
+  <section id="nodes" aria-live="polite"></section>
+  <div class="saved" id="savedto"></div>
+
+  <section class="reqs">
+    <h2>Recent requests</h2>
+    <div class="sub" id="rnote"></div>
+    <div class="rwrap"><table class="rt" id="rtable"></table></div>
+  </section>
+
+  <section class="models">
+    <h2>Models on each node</h2>
+    <div class="sub" id="mnote">Workflows are only sent to nodes that have the model files they use. Added models to a machine? Press Refresh model lists.</div>
+    <div class="mtools">
+      <input type="search" id="mq" placeholder="Filter by file name or folder" aria-label="Filter models">
+      <label><input type="checkbox" id="mdiff"> Only models missing from some nodes</label>
+      <button id="mrefresh" class="quiet">Refresh model lists</button>
+      <span id="mstatus" role="status"></span>
+    </div>
+    <div class="mwrap"><table class="mt" id="mtable"></table></div>
+  </section>
+</main>
+<div id="toast" role="status"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = "none", 3500);
+}
+async function api(path, opts = {}) {
+  const r = await fetch("/cluster/api" + path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch {} throw new Error(m); }
+  return r.json();
+}
+function ago(ts) {
+  if (!ts) return "never reachable";
+  const s = Math.max(0, Math.round(Date.now() / 1000 - ts));
+  return s < 5 ? "just now" : s < 90 ? s + " s ago" : Math.round(s / 60) + " min ago";
+}
+
+let lastPolled = null, polling = false;
+function showChecked() {
+  $("#checked").textContent = polling ? "Checking nodes…"
+    : lastPolled ? "Statuses last checked " + ago(lastPolled) : "Not checked yet";
+}
+async function pollNow(quiet) {
+  if (polling) return;
+  polling = true; $("#poll").disabled = true; showChecked();
+  try { render(await api("/poll", { method: "POST" })); await loadModels(); loadRequests(); }
+  catch (e) { if (!quiet) toast(e.message); }
+  polling = false; $("#poll").disabled = false; showChecked();
+}
+
+function modelInfo(n) {
+  if (n.model_count != null) return ` · ${n.model_count.toLocaleString()} model files`;
+  if (n.models_error) return " · model list unavailable";
+  return "";
+}
+
+const STATUS = { routing: "Routing", queued: "Queued", running: "Running", completed: "Completed",
+                 failed: "Failed", rejected: "Rejected", lost: "Lost", unknown: "Unknown" };
+function fmtTime(ts) { return new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
+function reqDetail(r) {
+  const main = r.status === "completed" ? (r.run_seconds != null ? `Took ${r.run_seconds} s` : "Finished " + ago(r.finished))
+    : r.status === "running" ? "Running on the node now"
+    : r.status === "queued" ? "Waiting in the node's queue" : (r.detail || "");
+  const meta = [];
+  if (r.tried.length) meta.push((r.node ? "Tried first: " : "Tried: ") + r.tried.join(", "));
+  if (r.models.length) meta.push("Models: " + r.models.join(", "));
+  if (r.client) meta.push("From " + r.client);
+  if (r.prompt_id) meta.push("Job " + String(r.prompt_id).slice(0, 8));
+  return esc(main) + (meta.length ? `<span class="sub2">${esc(meta.join(" · "))}</span>` : "");
+}
+async function loadRequests() {
+  try {
+    const d = await api("/requests");
+    $("#rnote").textContent = `Last ${d.size} requests since this service started. ` + (d.tracking > 0
+      ? `While requests are running, nodes and requests are re-checked every ${d.tracking} s. Checking stops when all have finished.`
+      : "Press Check nodes now to update the status of unfinished requests.");
+    $("#rtable").innerHTML = d.requests.length
+      ? `<tr><th>Received</th><th>Sent to</th><th>Status</th><th>Details</th></tr>` + d.requests.map(r =>
+        `<tr><td class="t">${fmtTime(r.received)}</td><td>${r.node ? esc(r.node_name) + `<span class="sub2">${esc(r.node)}</span>` : "–"}</td>` +
+        `<td><span class="st ${esc(r.status)}">${esc(STATUS[r.status] || r.status)}</span></td><td>${reqDetail(r)}</td></tr>`).join("")
+      : `<tr><td class="rempty">No requests received yet.</td></tr>`;
+  } catch {}
+}
+
+let refreshingModels = false;
+async function refreshModels(nodeId) {
+  if (refreshingModels) return;
+  refreshingModels = true;
+  const btns = document.querySelectorAll("[data-models], #mrefresh");
+  btns.forEach(b => b.disabled = true);
+  $("#mstatus").textContent = "Reading model lists…";
+  try {
+    const d = await api("/models/refresh", { method: "POST", body: JSON.stringify({ node: nodeId || null }) });
+    const parts = d.results.map(r => r.skipped ? `${r.name}: offline, skipped`
+      : r.error ? `${r.name}: couldn't read (${r.error})`
+      : (r.added || r.removed) ? `${r.name}: ${[r.added ? "+" + r.added : "", r.removed ? "−" + r.removed : ""].filter(Boolean).join(" ")} files`
+      : `${r.name}: no change`);
+    $("#mstatus").textContent = parts.length ? "Done. " + parts.join(" · ") : "No nodes to refresh.";
+    await loadModels(); refresh();
+  } catch (e) { $("#mstatus").textContent = ""; toast(e.message); }
+  refreshingModels = false;
+  document.querySelectorAll("[data-models], #mrefresh").forEach(b => b.disabled = false);
+}
+
+let mdata = null;
+async function loadModels() {
+  try { mdata = await api("/models"); renderModels(); } catch {}
+}
+function renderModels() {
+  if (!mdata) return;
+  const q = $("#mq").value.trim().toLowerCase(), diffOnly = $("#mdiff").checked;
+  const nodes = mdata.nodes, known = nodes.filter(n => n.known).length;
+  const head = `<tr><th>Model</th>${nodes.map(n => `<th title="${esc(n.id)}">${esc(n.name)}</th>`).join("")}</tr>`;
+  let rows = mdata.models.filter(m => (!q || (m.folder + "/" + m.name).toLowerCase().includes(q))
+                                   && (!diffOnly || m.on.length < known));
+  const total = rows.length; rows = rows.slice(0, 400);
+  const body = rows.map(m => {
+    const diff = m.on.length < known;
+    return `<tr class="${diff ? "diff" : ""}"><td title="${esc(m.folder)}/${esc(m.name)}"><span class="folder">${esc(m.folder)}/</span>${esc(m.name)}</td>` +
+      nodes.map(n => !n.known ? '<td class="unk" title="Model list unavailable">?</td>'
+        : m.on.includes(n.id) ? '<td class="has" title="Installed">✓</td>' : '<td class="no" title="Not installed">–</td>').join("") + "</tr>";
+  }).join("");
+  $("#mtable").innerHTML = head + (body || `<tr><td colspan="${nodes.length + 1}" class="unk">${mdata.models.length ? "No models match." : "No model lists yet. Press Check nodes now."}</td></tr>`);
+  $("#mnote").textContent = total > 400 ? `Showing 400 of ${total} models. Use the filter to narrow the list.`
+    : "Workflows are only sent to nodes that have the model files they use. A model marked – is missing on that node.";
+}
+
+function render(data) {
+  $("#self").textContent = "Viewing from " + data.self;
+  lastPolled = data.polled_at;
+  if (data.data_file) $("#savedto").textContent = "Nodes are saved to " + data.data_file + " and reloaded when the service restarts.";
+  showChecked();
+  const nodes = data.nodes, online = nodes.filter(n => n.status === "idle" || n.status === "busy");
+  const queued = online.reduce((a, n) => a + n.running + n.pending, 0);
+  $("#summary").innerHTML = `<b>${online.length}</b> of ${nodes.length} online · <b>${queued}</b> queued`;
+  const next = online.slice().sort((a, b) => a.load - b.load)[0];
+  if (!nodes.length) {
+    $("#nodes").innerHTML = '<div class="empty">No nodes yet. Add one by address, or scan the network to find ComfyUI machines.</div>';
+    return;
+  }
+  $("#nodes").innerHTML = nodes.map(n => {
+    const total = Math.max(n.running + n.pending, 1);
+    const detail = n.status === "offline" ? `Unreachable (${esc(n.error) || "no response"}) · last seen ${ago(n.last_seen)}`
+      : n.status === "unknown" ? "Checking…" : `${n.running} running · ${n.pending} waiting · ${n.latency_ms ?? "–"} ms`;
+    const label = { idle: "Idle", busy: "Busy", offline: "Offline", unknown: "Unknown" }[n.status] || n.status;
+    return `<div class="node ${esc(n.status)}">
+      <span class="dot"></span>
+      <div><div class="name">${esc(n.name || n.host)}${next && next.id === n.id ? '<span class="next">next job</span>' : ""}</div>
+           <div class="addr">${esc(n.id)} · ${esc(n.source)}${modelInfo(n)}</div></div>
+      <div class="load"><div class="meta">${detail}</div>
+        <div class="bar"><i class="r" style="width:${n.running / total * 100}%"></i><i class="p" style="width:${n.pending / total * 100}%"></i></div></div>
+      <div class="status status-col">${label}</div>
+      <div class="acts"><a href="http://${esc(n.id)}" target="_blank" rel="noopener"><button class="quiet">Open ComfyUI</button></a>
+        <button class="quiet" data-models="${esc(n.id)}">Refresh models</button>
+        <button class="quiet" data-remove="${esc(n.id)}">Remove</button></div>
+    </div>`;
+  }).join("");
+}
+
+async function refresh() {
+  try { render(await api("/nodes")); } catch (e) { $("#summary").textContent = "Can't reach this manager"; }
+  loadRequests();
+}
+
+let scanning = false;
+async function pollScan() {
+  try {
+    const s = await api("/discover");
+    const bar = $("#scanbar"), btn = $("#scan");
+    const wasScanning = scanning;
+    bar.hidden = !s.running; btn.disabled = s.running; scanning = s.running;
+    if (wasScanning && !s.running) loadModels();
+    $("#scanfill").style.width = (s.total ? s.done / s.total * 100 : 0) + "%";
+    if (s.running) $("#scanmsg").textContent = `Scanning ${s.subnets.join(", ")} · ${s.done}/${s.total} addresses checked · ${s.found.length} found`;
+    else if (s.finished) $("#scanmsg").textContent = s.found.length ? `Scan finished: ${s.found.length} ComfyUI node(s) found.` : "Scan finished: no ComfyUI nodes found. Check the subnet, or add a node by address.";
+  } catch {}
+}
+
+$("#add").onclick = async () => {
+  const address = $("#addr").value.trim();
+  if (!address) return toast("Enter the node's address first.");
+  try { await api("/nodes", { method: "POST", body: JSON.stringify({ address, name: $("#label").value.trim() }) });
+        $("#addr").value = ""; $("#label").value = ""; refresh(); loadModels(); }
+  catch (e) { toast(e.message); }
+};
+$("#scan").onclick = async () => {
+  try { await api("/discover", { method: "POST", body: JSON.stringify({ cidr: $("#cidr").value.trim() || null }) });
+        $("#scanmsg").textContent = "Starting scan…"; pollScan(); }
+  catch (e) { toast(e.message); }
+};
+$("#mrefresh").onclick = () => refreshModels(null);
+$("#nodes").onclick = async e => {
+  if (e.target.dataset.models) return refreshModels(e.target.dataset.models);
+  const id = e.target.dataset.remove;
+  if (!id || !confirm("Remove " + id + " from the cluster? Peers will drop it too.")) return;
+  try { await api("/nodes/" + encodeURIComponent(id), { method: "DELETE" }); refresh(); loadModels(); } catch (err) { toast(err.message); }
+};
+
+$("#poll").onclick = () => pollNow(false);
+$("#mq").oninput = renderModels; $("#mdiff").onchange = renderModels;
+pollNow(true); pollScan();          // opening the dashboard checks the nodes once
+// Re-reads the manager's last known state only (never contacts ComfyUI), and pauses while the tab is hidden.
+setInterval(() => { if (!document.hidden) refresh(); }, 2000);
+setInterval(() => { if (scanning && !document.hidden) { pollScan(); refresh(); } }, 700);
+setInterval(() => { if (!document.hidden) pollScan(); }, 5000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { refresh(); pollScan(); } });
+</script>
+</body>
+</html>
